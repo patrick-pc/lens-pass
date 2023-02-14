@@ -1,6 +1,85 @@
+import { ConnectKitButton } from 'connectkit'
+import { generateChallenge, authenticate, getDefaultProfile } from '@/utils'
+import { toast } from 'react-hot-toast'
+import { useAccount, useSigner } from 'wagmi'
+import { useState, useEffect } from 'react'
 import Head from 'next/head'
+import GeneratePass from '@/components/GeneratePass'
 
 export default function Home() {
+  const { address, isConnected } = useAccount()
+  const { data: signer } = useSigner()
+
+  const [accessToken, setAccessToken] = useState(null)
+  const [profile, setProfile] = useState(null)
+  const [nfts, setNfts] = useState([])
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('accessToken')
+
+    if (token) {
+      setAccessToken(token)
+      getProfile()
+    }
+  }, [accessToken])
+
+  const signIn = async () => {
+    try {
+      if (!isConnected) return toast.error('Connect wallet to continue')
+
+      const challenge = await generateChallenge(address)
+      const signature = await signer.signMessage(challenge)
+      const accessToken = await authenticate(address, signature)
+
+      // @TODO: Add refresh token
+      sessionStorage.setItem('accessToken', accessToken)
+      setAccessToken(accessToken)
+      console.log({ accessToken })
+    } catch (error) {
+      toast.error('Error signing in')
+      console.error(error)
+    }
+  }
+
+  const signOut = async () => {
+    sessionStorage.removeItem('accessToken')
+    setAccessToken(null)
+    setProfile(null)
+  }
+
+  const getProfile = async () => {
+    const profile = await getDefaultProfile(address)
+    setProfile(profile)
+    getLensProfileNfts()
+    console.log(profile)
+  }
+
+  const getLensProfileNfts = async () => {
+    try {
+      const response = await fetch(
+        `/api/simplehash?contractAddresses=0xdb46d1dc155634fbc732f92e853b10b288ad5a1d&address=${address}`,
+        {
+          method: 'GET',
+          headers: new Headers({
+            'content-type': 'application/json',
+          }),
+        }
+      )
+
+      if (response.status === 200) {
+        const { nfts } = await response.json()
+        setNfts(nfts)
+      } else {
+        const { error, message } = await response.json()
+        toast.error(error || message)
+        console.error(error)
+      }
+    } catch (error) {
+      toast.error(error)
+      console.error(error)
+    }
+  }
+
   return (
     <>
       <Head>
@@ -10,7 +89,47 @@ export default function Home() {
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      <main className="flex h-screen w-full items-center justify-center">yo</main>
+      <div className="flex h-screen w-full flex-col items-center justify-center gap-4">
+        {!address && <ConnectKitButton />}
+        {accessToken ? (
+          <button onClick={signOut}>Sign Out</button>
+        ) : (
+          <button onClick={signIn}>Sign In With Lens</button>
+        )}
+
+        {profile && (
+          <>
+            <img
+              className="h-40 w-40"
+              src={`https://gateway.ipfs.io/ipfs/${profile.picture.original.url.slice(7)}`}
+            />
+            <div>{profile.handle}</div>
+            <div>{profile.name}</div>
+            <GeneratePass
+              settings={{
+                publicKey: process.env.NEXT_PUBLIC_ETHPASS_PUBLIC_KEY,
+                contracts: [
+                  {
+                    address: '0xdb46d1dc155634fbc732f92e853b10b288ad5a1d',
+                    chain: {
+                      name: 'evm',
+                      network: 137,
+                    },
+                  },
+                ],
+                profile: {
+                  address: address,
+                  handle: profile.handle,
+                  name: profile.name,
+                  id: profile.id.toString(),
+                },
+                // checkDuplicateWallet: true,
+                // checkDuplicateToken: false,
+              }}
+            />
+          </>
+        )}
+      </div>
     </>
   )
 }
