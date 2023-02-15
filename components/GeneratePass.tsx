@@ -208,7 +208,7 @@ const GeneratePass: React.FC<GeneratePassProps> = ({
       searchParams.append('contractAddress', contractAddress as string)
       searchParams.append('tokenId', tokenId as string)
       searchParams.append('chain', 'evm')
-      searchParams.append('network', String(137))
+      searchParams.append('network', String(chain?.network))
 
       url = `https://api.ethpass.xyz/api/public/sdk/passes/get?${searchParams.toString()}`
     }
@@ -304,11 +304,14 @@ const GeneratePass: React.FC<GeneratePassProps> = ({
     setDisableClose(true)
     setModal('Generating Pass')
 
+    console.log('@@@ chain', nft)
+    console.log('@@@ chain', chain)
+
     // Request body
     const payload = {
       profile,
       platform,
-      chainId: 137,
+      chainId: chain?.network,
       contractAddress: nft.contractAddress,
       signature: sig.signature || signature,
       signatureMessage: sig.signatureMessage || signatureMessage,

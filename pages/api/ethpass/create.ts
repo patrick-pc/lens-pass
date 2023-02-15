@@ -45,7 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               {
                 key: 'secondary2',
                 label: 'PROFILE ID',
-                value: profile.id,
+                value: Number(profile.id),
                 textAlignment: 'PKTextAlignmentLeft',
               },
             ],

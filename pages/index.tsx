@@ -1,10 +1,11 @@
 import { ConnectKitButton } from 'connectkit'
 import { generateChallenge, authenticate, getDefaultProfile } from '@/utils'
+import { Ring } from '@uiball/loaders'
 import { toast } from 'react-hot-toast'
 import { useAccount, useSigner } from 'wagmi'
 import { useState, useEffect } from 'react'
 import Head from 'next/head'
-import GeneratePass from '@/components/GeneratePass'
+import QRCode from 'qrcode'
 
 export default function Home() {
   const { address, isConnected } = useAccount()
@@ -12,7 +13,11 @@ export default function Home() {
 
   const [accessToken, setAccessToken] = useState(null)
   const [profile, setProfile] = useState(null)
-  const [nfts, setNfts] = useState([])
+  const [nft, setNft] = useState(null)
+  const [platform, setPlatform] = useState('')
+  const [fileUrl, setFileUrl] = useState('')
+  const [qrCode, setQRCode] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
 
   useEffect(() => {
     const token = sessionStorage.getItem('accessToken')
@@ -68,7 +73,8 @@ export default function Home() {
 
       if (response.status === 200) {
         const { nfts } = await response.json()
-        setNfts(nfts)
+        console.log(nfts[0])
+        setNft(nfts[0])
       } else {
         const { error, message } = await response.json()
         toast.error(error || message)
@@ -77,6 +83,67 @@ export default function Home() {
     } catch (error) {
       toast.error(error)
       console.error(error)
+    }
+  }
+
+  const generatePass = async (platform: string) => {
+    setPlatform(platform)
+
+    let signature, signatureMessage
+    try {
+      signatureMessage = `Sign this message to generate a pass with ethpass. \n${Date.now()}`
+      signature = await signer?.signMessage(signatureMessage)
+    } catch (error) {
+      console.log(error)
+    }
+
+    setIsLoading(true)
+
+    const payload = {
+      profile,
+      platform,
+      signature,
+      signatureMessage,
+      chainId: 137,
+      contractAddress: nft.contract_address,
+      tokenId: nft.token_id,
+      barcode: {
+        message: 'Verified lens profile.',
+      },
+    }
+
+    try {
+      const response = await fetch(`/api/ethpass/create`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: new Headers({
+          'content-type': 'application/json',
+        }),
+      })
+
+      if (response.status === 200) {
+        const json = await response.json()
+        setFileUrl(json.fileURL)
+
+        QRCode.toDataURL(json.fileURL, {}, (error, url) => {
+          if (error) throw error
+          setQRCode(url)
+        })
+      } else if (response.status === 401) {
+        toast.error(`Unable to verify ownership: ${response.statusText}`)
+      } else {
+        try {
+          const { error, message } = await response.json()
+          toast.error(error || message)
+        } catch {
+          toast.error(`${response.status}: ${response.statusText}`)
+        }
+      }
+    } catch (error) {
+      toast.error(error.message)
+      console.error(error)
+    } finally {
+      setIsLoading(false)
     }
   }
 
@@ -105,28 +172,73 @@ export default function Home() {
             />
             <div>{profile.handle}</div>
             <div>{profile.name}</div>
-            <GeneratePass
-              settings={{
-                publicKey: process.env.NEXT_PUBLIC_ETHPASS_PUBLIC_KEY,
-                contracts: [
-                  {
-                    address: '0xdb46d1dc155634fbc732f92e853b10b288ad5a1d',
-                    chain: {
-                      name: 'evm',
-                      network: 137,
-                    },
-                  },
-                ],
-                profile: {
-                  address: address,
-                  handle: profile.handle,
-                  name: profile.name,
-                  id: profile.id.toString(),
-                },
-                // checkDuplicateWallet: true,
-                // checkDuplicateToken: false,
-              }}
-            />
+
+            {qrCode ? (
+              <>
+                <p className="text-sm opacity-50">{`Scan QR code using your ${
+                  platform.toLowerCase() === 'apple' ? 'Apple' : 'Android'
+                } device.`}</p>
+                <div className="w-250 h-250 flex justify-center">
+                  <img className="max-h-[250px] max-w-[250px] rounded-lg" src={qrCode} />
+                </div>
+                <div className="flex items-center gap-2 rounded-lg border border-yellow-300/60 bg-yellow-300/20 p-2 text-left font-medium text-yellow-600">
+                  <p className="text-xs">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      className="mr-1 inline h-4 w-4 text-yellow-400"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M9.401 3.003c1.155-2 4.043-2 5.197 0l7.355 12.748c1.154 2-.29 4.5-2.599 4.5H4.645c-2.309 0-3.752-2.5-2.598-4.5L9.4 3.003zM12 8.25a.75.75 0 01.75.75v3.75a.75.75 0 01-1.5 0V9a.75.75 0 01.75-.75zm0 8.25a.75.75 0 100-1.5.75.75 0 000 1.5z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    This is not your mobile pass. You need to scan the QR code to add it to your{' '}
+                    {platform.toLowerCase() === 'apple' ? 'Apple' : 'Android'} wallet.
+                  </p>
+                </div>
+                <a
+                  className="flex items-center justify-center"
+                  href={fileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <img
+                    className="h-12"
+                    src={`/assets/${
+                      platform && platform.toLowerCase() === 'apple' ? 'apple' : 'google'
+                    }-wallet-add.svg`}
+                  />
+                </a>
+              </>
+            ) : isLoading ? (
+              <Ring size={60} color="#4F46E5" />
+            ) : (
+              <>
+                <div className="flex w-full max-w-xs flex-col gap-4">
+                  <button
+                    className="flex cursor-pointer select-none items-center justify-center gap-4 rounded-xl border bg-white p-3 text-gray-700 transition duration-100 ease-in-out hover:bg-gray-50"
+                    onClick={() => generatePass('apple')}
+                  >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-100">
+                      <img className="h-5" src="/assets/apple-wallet.png" />
+                    </div>
+                    <div className="w-[105px] text-left">Apple Wallet</div>
+                  </button>
+                  <button
+                    className="flex cursor-pointer select-none items-center justify-center gap-4 rounded-xl border bg-white p-3 text-gray-700 transition duration-100 ease-in-out hover:bg-gray-50"
+                    onClick={() => generatePass('google')}
+                  >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-100">
+                      <img className="h-6" src="https://nwpass.vercel.app/img/google-wallet.png" />
+                    </div>
+                    <div className="w-[105px] text-left">Google Wallet</div>
+                  </button>
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
